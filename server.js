@@ -1,50 +1,139 @@
+//server.js
+
 const express = require('express');
-const dotenv = require('dotenv');
-const jwt = require('jsonwebtoken');
-const port = 6000;
-const app = express();
+const port =  8008;
+const http = require('http')
+const path = require('path');
+const fs = require('fs');
+const app = http.createServer(requestHandler);
 
-dotenv.config();
+const io = require('socket.io')(app,{
+    path:'/socket.io'
+})
 
-app.post('/user/generateToken',(req,res)=>{
+var users={};
 
-    const secret_key = process.env.JWT_SECRET_KEY
-    let userData = {
-        userId: 10,
-        time: Date()
+
+function requestHandler(req,res){
+
+    console.log(`Recieved a request from ${req.url}`);
+
+    var filePath = './client' + req.url;
+    if(filePath=='./client/'){
+        filePath = './client/index.html' 
     }
-    let token = jwt.sign(userData, secret_key);
-    res.send(token);
 
+    var ext = String(path.extname(filePath)).toLowerCase();
+
+    console.log(`serving ${filePath}`);
+
+    var mimeTypes = {
+        '.html': 'text/html',
+        '.js': 'text/javascript',
+        '.css': 'text/css',
+        '.png': 'image/png',
+        '.jpg': 'image/jpg',
+        '.gif': 'image/gif',
+        '.svg': 'image/svg+xml',
+      }
+
+      var contentType = mimeTypes[ext] || 'application/octet-stream';
+
+      fs.readFile(filePath,function(error,content){
+
+        if(error){
+
+            if(error.code=='ENOENT'){
+
+                fs.readFile('./client/404.html', function (error, content) {
+                    res.writeHead(404, { 'Content-Type': contentType })
+                    res.end(content, 'utf-8')
+                  })
+            }else{
+
+                res.writeHead(500)
+                res.end('Sorry, there was an error: ' + error.code + ' ..\n')
+            }
+
+            }else{
+                
+                res.writeHead(200, { 'Content-Type': contentType })
+                res.end(content, 'utf-8')
+            }
+
+        })
+
+    }
+      
+
+
+//INITIATE SOCKET IO FOR COMMUNICATION
+
+
+
+//Imports socket.io and attaches it to our app server
+io.attach(app,{
+
+    cors: {
+        cors: {
+            origin: "http://localhost",
+            methods: ["GET", "POST"],
+            credentials: true,
+            transports: ["websocket", "polling"],
+          },
+          allowEIO3: true,
+    }
 })
+ 
+io.on('connection',(socket)=>{
 
 
-app.get('/user/validateToken',(req,res)=>{
+    console.log("New connected socket ",socket.id);
 
-     const header_key = process.env.TOKEN_HEADER_KEY
-     const secret_key = process.env.JWT_SECRET_KEY
-      
-     try{
-         
-      
-        const token = req.header(header_key);
+
+// on new connection 
+    socket.on("new-connection",(data)=>{
+
+        console.log("new connection recieved ", data);
+
+        users[socket.id] = data.username ;
+
+        console.log("users connected" , users);
+
+        //emit welcome message event
+
+        socket.emit("welcome-message",{
+            user:"server",
+            message: `Welcome to this Chat ${data.username}. There are ${Object.keys(users).length} users connected`,
+
+
+        });
+    });
+
+// handles message posted by client
+
+socket.on("new-message",(data)=>{
+
+    console.log("new message from client : ",data.user);
+
+    
+    socket.broadcast.emit("broadcast-message",{
+
+        user: users[data.user],
+        message : data.message
+
         
-        let verify = jwt.verify(token,secret_key);
-        if(verify){
-            res.send("Successfully verified ")
-        }
-        else{
-            res.status(400).send(error);
-        }
+    })
+})
 
-     }catch(e){
-
-        return res.status(400).send(e);
-     }
 
 
 })
+
+
 
 app.listen(port,()=>{
-    console.log("You are connected at : ",port);
+
+    console.log("Connected At Port : ",port);
+
 })
